@@ -1,66 +1,37 @@
 # LeanTorch-Cert
 
-> **A Dependently-Typed Architecture for Compiled Tensor Safety and Certified Neural Verification**
+Shape-checked neural networks in Lean 4, an exact PyTorch → Lean importer, and **machine-checked
+interval-bound-propagation (IBP) certificates** over ℝ.
 
-`LeanTorch-Cert` is a formal verification and safe deep learning framework that bridges continuous neural network optimization in **PyTorch** with interactive theorem proving in **Lean 4**.
-
----
-
-## Key Features
-
-1. **Compile-Time Tensor Shape Safety**:
-   - Shape-indexed tensors `Tensor (shape : List ℕ) ℝ` powered by Lean 4 dependent types.
-   - Elimination of runtime dimension mismatches (`RuntimeError: shape mismatch`) at compile-time.
-   - Declarative DSL (`torch_net % [...]`) with automatic shape chaining.
-
-2. **Exact Parameter Serialization**:
-   - Float-to-Rational conversion ($\mathbb{F} \to \mathbb{Q} \to \mathbb{R}$) preserving mathematical precision.
-   - Automated code generation emitting native Lean 4 formal structures.
-
-3. **Formal Verification & Certification Engine**:
-   - **Real Interval Arithmetic Engine**: Rigorous bounds propagation $[a, b] \subset \mathbb{R}$.
-   - **Neural Lyapunov Certification**: Automated proofs of asymptotic stability for continuous non-linear systems $\dot{x} = f(x)$.
-   - **Adversarial Robustness**: $L_\infty$ robustness verification via Interval Bound Propagation (IBP).
-
-4. **CEGIS Training Pipeline**:
-   - PyTorch Counterexample-Guided Inductive Synthesis (CEGIS) trainer for candidate Lyapunov functions $V_\theta(x)$.
-
----
-
-## Directory Layout
-
-```text
-LeanTorch-Cert/
-├── lakefile.lean               # Lean 4 package manifest & dependencies
-├── LeanTorch.lean              # Master Lean library root
-├── Main.lean                   # Runtime entrypoint
-│
-├── LeanTorch/                  # Core Lean 4 Formal Framework
-│   ├── Core/                   # Tensors, Layers, Networks & Mathlib integration
-│   ├── Elab/                   # Metaprogramming, DSL & Compile-time JSON Importer
-│   ├── FFI/                    # LibTorch C-ABI bindings & Native C++ bridge
-│   └── Cert/                   # Intervals, Semantics, Lyapunov & Robustness Proofs
-│
-├── python/                     # PyTorch Exporter & PINN Trainer
-│   ├── leantorch_exporter/     # IR Schemas, FX Exporter, CEGIS Trainer
-│   └── tests/                  # PyTest verification suite
-│
-├── examples/                   # Executable Lean 4 Certification Examples
-│   ├── 01_CompileTimeShapes.lean
-│   ├── 02_LyapunovCertification.lean
-│   └── 03_RobustnessVerification.lean
-│
-└── tests/                      # Lean 4
-```
 ## Quick start
-### 1. Build the Lean 4 Framework
 ```bash
-# Fetch dependencies (Mathlib 4) and build library
-lake build
+curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh
+lake update # first time only: resolves Mathlib and writes lake-manifest.json
+lake exe cache get # prebuilt Mathlib (otherwise Mathlib compiles from source: very slow)
+lake build # builds everything, incl. the proofs in LeanTorch/Cert and Examples
+lake exe leantorch # demo: Lean forward pass + native C tensor backend
+lake test     
+cd python && pip install -e ".[test]" && pytest
 ```
-### 2. Run Python Export & CEGIS Loop
-```bash
-cd python
-pip install -e .
-pytest
-```
+Toolchain: Lean 4.15.0 / Mathlib `v4.15.0` (pinned in `lean-toolchain` and `lakefile.lean`).
+
+## Layout
+| Path | Needs Mathlib | Content |
+|---|---|---|
+| `LeanTorch/Core` | no | `Tensor`, `DenseLayer`, `LayerChain` (adjacent widths are checked by the type system), generic over the scalar type: executable over `Float`, provable over `ℝ`. Theorem `run_concat`. |
+| `LeanTorch/Elab` | no | `torch_net % [...]` DSL, `#assert_network_shape`, `#import_torch_model` (reads the exporter's JSON at elaboration time, exact rational weights). |
+| `LeanTorch/FFI`, `ffi/` | no | Pure-C CPU tensor backend as Lean external objects (no manual free; shape errors are `IO` errors). libtorch bridge in `ffi/torch/` is a legacy prototype, **not functional** (see its README). |
+| `LeanTorch/Cert` | yes | `RealInterval`, `evalChainIBP`, theorem **`evalChainIBP_sound`**, `verify_robustness_via_ibp`, `LyapunovConditions`. |
+| `python/` | – | `leantorch_exporter`: FX exporter (exact rationals), exact `Fraction` IBP (`ibp.py`), CEGIS Lyapunov trainer. |
+
+## Workflow
+1. `ModelExporter(model, x).build_spec("m")` → `spec.write_json("m.json")` (exact dyadic rationals; no rounding).
+2. Lean: `#import_torch_model_noncomputable "m.json" as MNet : ℝ`.
+3. Certify: `python/leantorch_exporter/ibp.py` gives exact bounds; `verify_robustness_via_ibp` turns a returned box into a theorem.
+
+## What is and is not guaranteed
+* Certificates are about the **real-number** network defined by the exported weights, not about float32/float64 PyTorch inference (rounding is not modelled).
+* IBP supports Linear, ReLU, LeakyReLU (slope ≥ 0). `tanh`/Sigmoid return `none` (never an unsound box).
+* `LyapunovConditions` records the pointwise Lyapunov inequalities. Lean does **not** yet check that the supplied `gradV` is `∇V`, and the structure alone does not prove stability.
+* The Python Lyapunov trainer is empirical (no counterexample found ≠ proof).
+* The libtorch bridge and CUDA are not available (the native backend is CPU float64, rank 1–2).
