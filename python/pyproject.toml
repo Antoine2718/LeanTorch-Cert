@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "leantorch-exporter"
+version = "0.2.0"
+description = "Export PyTorch models as exact-rational JSON for LeanTorch-Cert, plus an exact IBP checker."
+requires-python = ">=3.9"
+dependencies = ["pydantic>=2.0"]
+
+[project.optional-dependencies]
+torch = ["torch>=2.1"]
+test = ["pytest>=7"]
+
+[tool.setuptools]
+packages = ["leantorch_exporter"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
