@@ -1,4 +1,3 @@
-/* WARNING: legacy prototype, not built and not ABI-compatible. See README_bridge.md in this directory. */
 #include <torch/torch.h>
 #include <lean/lean.h>
 #include <vector>
